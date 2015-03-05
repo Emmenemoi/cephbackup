@@ -1,12 +1,27 @@
 #!/usr/bin/python
 
+#
+#   Config file zfsbackup.conf should contain:
+#
+#[MAIN]
+#sshkey_path = 
+#ssh_user = 
+#backup_server = 
+#remote_zfs_dataset = 
+#local_zfs_dataset = 
+#
+#[VMLIST]
+#backups = <space separated xen machines>
+#
+
 import subprocess, time, re, ConfigParser, logging, sys, os, getopt, fcntl, logging
 from localZfs import *
 from remoteZfs import *
 
 pid_file = '/var/run/zfslivebackup.pid'
-logfile = "/var/log/arancloud/backup.log"
-configfile = "/mnt/dcptools/zfs/livebackup.conf"
+logfile = "/var/log/zfsbackup/backup.log"
+configfile = "./zfsbackup.conf"
+
 silent = False
 dryrun = False
 
@@ -150,10 +165,15 @@ else:
 Config = ConfigParser.ConfigParser()
 Config.read( configfile )
 livebackups = re.split('[\s]+', Config.get("VMLIST", "backups") )
+sshkey_path = Config.get("MAIN", "sshkey_path")
+ssh_user = Config.get("MAIN", "ssh_user")
+backup_server = Config.get("MAIN", "backup_server")
+remote_zfs_dataset = Config.get("MAIN", "remote_zfs_dataset" )
+local_zfs_dataset = Config.get("MAIN", "local_zfs_dataset" )
 
 try:
-    remoteZpool = RemoteZpool('1.data.arancloud.com', 'root', 'tank/backups', dryrun, '/mnt/dcptools/arancloud_backup')
-    backup_vm.zpool = Zpool('tank', dryrun)
+    remoteZpool = RemoteZpool(backup_server, ssh_user, remote_zfs_dataset , dryrun, sshkey_path )
+    backup_vm.zpool = Zpool(local_zfs_dataset, dryrun)
 
     for (uuid, name) in get_local_backup_vms():
        timestamp = time.strftime("%Y%m%d-%H:%M", time.gmtime())
