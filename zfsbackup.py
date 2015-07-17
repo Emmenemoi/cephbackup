@@ -105,17 +105,10 @@ def backup_vm( remoteZpool, vmhostname ):
         remoteDataset = remoteZpool.getDataset(remoteZpool.name + '/vm-' + vmid)
         if remoteDataset != None:
             remoteDataset.rollBackupNames()
-        
-    
-
-    #cmd = '/mnt/dcptools/zfs/zfSnap/zfSnap.sh -v -d -a 4h -R -bhost "-i /mnt/dcptools/arancloud_backup root@1.data.arancloud.com" -bpool tank/backups -bz tank/vm-' + vmid
-    #print cmd
-    #print subprocess.check_output(
-    #    cmd,
-    #    stderr=subprocess.STDOUT,
-    #    shell=True)
-    #print commands.getoutput(cmd)
-
+    else:
+	logging.error("Cannot import: mmight need to clean old snapshots.")
+	logging.error("=> zfs list -r -H -o name -t snapshot %s | xargs -n1 zfs release keep" % remoteDataset.name)
+	logging.error("=> zfs destroy -rvd %s@%%" % remoteDataset.name)
 
 
 # be sure runs only once
@@ -127,9 +120,9 @@ except IOError:
     sys.exit(0)
 
 try:
-  opts, args = getopt.getopt( sys.argv[1:] ,"shd",["silent", "dry-run"])
+  opts, args = getopt.getopt( sys.argv[1:] ,"shd",["silent", "dry-run", "config-file="])
 except getopt.GetoptError:
-  print 'usage: -s or --silent / -d or --dry-run'
+  print 'usage: -s or --silent / -d or --dry-run / --config-file=<path>'
   sys.exit(2)
 
 for opt, arg in opts:
@@ -140,6 +133,8 @@ for opt, arg in opts:
          silent = True
       elif opt in ("-d", "--dry-run"):
          dryrun = True
+      elif opt in ("--config-file"):
+	configfile = arg
 
 if (silent) :
     # verify arancloud log

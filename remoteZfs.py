@@ -93,8 +93,8 @@ class RemoteZpool(object):
         if self.isScrubActive() : 
             raise ZFSError(self, 'Pool is scrubbing')
         else:
-            self.__used = int(check_output(self._sshprefix + ' '+' '.join(["zfs", "get", "-H", "-p", "-o", "value,used", self.name]), shell=True)) 
-            self.__available = int(check_output(self._sshprefix + ' '+' '.join( ["zfs", "get", "-H", "-p", "-o", "value,available", self.name]), shell=True))
+            self.__used = int(check_output(self._sshprefix + ' '+' '.join(["zfs", "get", "-H", "-p", "-o", "value", "used", self.name]), shell=True)) 
+            self.__available = int(check_output(self._sshprefix + ' '+' '.join( ["zfs", "get", "-H", "-p", "-o", "value", "available", self.name]), shell=True))
             self.refreshDatasets()
 
     def isScrubActive(self):
@@ -202,7 +202,7 @@ class RemoteZpool(object):
         if self.dryrun:
             return self.__used
         else:
-            return int(check_output(self._sshprefix + ' '+' '.join( ["zfs", "get", "-H", "-p", "-o", "value,used", self.name]), shell=True))
+            return int(check_output(self._sshprefix + ' '+' '.join( ["zfs", "get", "-H", "-p", "-o", "value", "used", self.name]), shell=True))
 
     def setUsed(self, value):
         self.__used = value
@@ -213,7 +213,7 @@ class RemoteZpool(object):
         if self.dryrun:
             return self.__available
         else:
-            return int(check_output(self._sshprefix + ' '+' '.join( ["zfs", "get", "-H", "-p", "-o", "value,available", self.name]), shell=True))
+            return int(check_output(self._sshprefix + ' '+' '.join( ["zfs", "get", "-H", "-p", "-o", "value", "available", self.name]), shell=True))
 
     def setAvailable(self, value):
         self.__available = value
@@ -258,7 +258,7 @@ class RemoteDataset(object):
         if self.dryrun:
             return self.__referenced
         else:
-            return int(check_output(zpool.getSshPrefix() + ' '+' '.join( ["zfs", "get", "-H", "-p", "-o", "value,referenced", self.name]), shell=True))
+            return int(check_output(zpool.getSshPrefix() + ' '+' '.join( ["zfs", "get", "-H", "-p", "-o", "value" , "referenced", self.name]), shell=True))
 
     def setReferenced(self, value):
         self.__referenced = value
