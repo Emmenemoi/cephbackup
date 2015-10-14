@@ -28,7 +28,7 @@ class CephPool(object):
 		self._conf = conf
 		self._user=user
 		self._keyring=keyring
-		logging.info("Loading config at %s" % (conf))
+		logging.info("Loading rbd config at %s" % (conf))
 		config = dict()
 		if (keyring != None):
 			config["keyring"] = keyring
@@ -173,8 +173,9 @@ class Dataset(object):
 				snapshot = Snapshot(snap['id'], snap['name'], self, self.dryrun)
 				snapshot.used = snap['size']
 				self.snapshots.append(snapshot)
-		
-			sorted(self.snapshots, key=lambda snapshot: snapshot.creation, reverse=True) # sorted latest first
+			self.sortSnaps()
+			for s in self.snapshots:
+				logging.debug("%s (%s)" % (s.name, s.creation))
 
 	def __del__(self):
 		"""Delete Dataset."""
@@ -186,6 +187,9 @@ class Dataset(object):
 		if self._exists and self._rbdImage != None:
 			self._rbdImage.close()
 
+	def sortSnaps(self):
+		self.snapshots = sorted(self.snapshots, key=lambda snapshot: snapshot.creation, reverse=True) # sorted latest first
+	
 	def getRemovableSnapshots(self):
 		removableSnapshots = []
 		for snapshot in self.snapshots:
@@ -195,43 +199,6 @@ class Dataset(object):
 
 	removableSnapshots = property(getRemovableSnapshots)
 
-	def getMaxRetention(self):
-		if self.__maxRetention == None:
-			if self.parent == None:
-				return []
-			else:
-				return self.parent.maxRetention
-		return self.__maxRetention
-
-	def setMaxRetention(self, value):
-		self.__maxRetention = value.split(" and ")
-
-	maxRetention = property(getMaxRetention, setMaxRetention)
-
-	def getRetentionPolicy(self):
-		if self.__retentionPolicy == None:
-			if self.parent == None:
-				return []
-			else:
-				return self.parent.retentionPolicy
-		return self.__retentionPolicy
-
-	def setRetentionPolicy(self, value):
-		self.__retentionPolicy = value.split(" and ")
-
-	retentionPolicy = property(getRetentionPolicy, setRetentionPolicy)
-
-	def getReferenced(self):
-		if self.dryrun:
-			return self.__referenced
-		else:
-			return int(check_output(["/sbin/zfs", "get", "-H", "-p", "-o", "value", "referenced", self.name]))
-
-	def setReferenced(self, value):
-		self.__referenced = value
-
-	referenced = property(getReferenced, setReferenced)
-
 	def destroySnapshotsOutOfMaxRetention(self):
 		# Destroy snapshots out of maxRetention policy
 		for snapshot in self.snapshots[:]:
@@ -240,14 +207,14 @@ class Dataset(object):
 					logging.info("Image.remove_snap("+snapshot.name+")")
 				else:
 					self._rbdImage.remove_snap(snapshot.name)
-					logging.info("Snapshot '%s' has been destroyed" % snapshot.name)
+					logging.info("Snapshot '%s/%s@%s' has been destroyed" % (self.pool.name, self.name, snapshot.name))
 				self.snapshots.remove(snapshot)
 
 	def createBackupSnapshot(self):
 		# impossible to rename for the moment, so we cannot flag and then restart former failed backup
-		current = self.getCurrentBackupSnapshot()
-		if current != None:
-			return current
+		#current = self.getCurrentBackupSnapshot()
+		#if current != None:
+		#	return current
 
 		snapshotname =  Dataset.today.strftime(Dataset.snapshotPattern)+""
 		if self.dryrun:
@@ -257,15 +224,16 @@ class Dataset(object):
 			logging.info("Snapshot '%s' has been created" % snapshotname)
 		snapshot = Snapshot(None, snapshotname, self, self.dryrun)
 		self.snapshots.append(snapshot)
-		sorted(self.snapshots, key=lambda snapshot: snapshot.creation, reverse=True) # sorted latest first
+		self.sortSnaps()
 		return snapshot
 
 	def getMostRecentMatchingSnapshot(self, remotesnapshots):
 		matchingSnap = None
 		for snapshot in self.snapshots[:]:
-			if snapshot.isLastBackup():
-				return snapshot
-			elif matchingSnap == None or matchingSnap.creation < snapshot.creation:
+			#if snapshot.isLastBackup():
+			#	return snapshot
+			#elif
+			if matchingSnap == None or matchingSnap.creation < snapshot.creation:
 				for remotesnapshot in remotesnapshots[:]:
 					if remotesnapshot.creation == snapshot.creation:
 						matchingSnap = snapshot
@@ -297,7 +265,8 @@ class Dataset(object):
 		for snapshot in self.snapshots[:]:
 			if snapshot.isCurrentBackup():
 				snapshot.renameToLastBackup()
-				
+	
+	# no SSH connection so it doesn't matter export / import, ie: initiating node.
 	def exportSnapshot(self, remoteDataset, localsnapshot, incrementalSnap=None):
 		logging.debug("Performing differential transfer from '%(src)s' to '%(dest)s'", {'src': self.name, 'dest': remoteDataset.name})
 		cmd1 = ['rbd']
@@ -318,7 +287,8 @@ class Dataset(object):
 			
 		if self.dryrun:
 			logging.info(" ".join(cmd1) + ' | ' + " ".join(cmd2))
-			result = 'received'
+			result = None
+			stderr = ''
 		else:
 			result, stderr = self._piped_execute(cmd1, cmd2)
 			if result:
@@ -415,12 +385,15 @@ class Snapshot(object):
 			self.dataset.pool.available += self.used
 
 	def isLastBackup(self):
-		return Snapshot.lastPattern.match(self.name)
+		#return Snapshot.lastPattern.match(self.name)
+		return len(self.dataset.snapshots) >= 2 and self.name == self.dataset.snapshots[1].name
 
 	def isCurrentBackup(self):
-		return Snapshot.currentPattern.match(self.name)
+		#return Snapshot.currentPattern.match(self.name)
+		return len(self.dataset.snapshots) >= 1 and self.name == self.dataset.snapshots[0].name
 
 	def renameToLastBackup(self):
+		# no rename for the moment, so no C and L
 		return self.rename( self.name.replace('C','L'), True )
 
 	def rename(self, name, force=False):
@@ -460,84 +433,6 @@ class Snapshot(object):
 		except rados.Error:
 			logging.error("Snapshot '%s' failed to be destroyed" % self.name)
 			return False
-
-	def match(self, policy):
-		# just for the record,
-		#
-		# if [ x for x in [ whatever() ] if cond(x) ] : process(x)
-		# is a close Python transliteration of C's assign and test:
-		#
-		# if( cond(x=whatever()) ) process(x);
-		# Pretty obscure, though.
-
-		weekdays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
-
-		# all
-		if [ m for m in [ re.match('^all$', policy) ] if m != None ]:
-			logging.debug("Snapshot %s matches policy %s." % (self.name, policy))
-			return True
-		# none
-		elif [ m for m in [ re.match('^none$', policy) ] if m != None ]:
-			return False
-		# n hour[s]
-		elif [ m for m in [ re.match('^(\d+) hour[s]?$', policy) ] if m != None ]:
-			if self.creation >= datetime.today() - timedelta(hours=int(m.group(1))):
-				logging.debug("Snapshot %s matches policy %s." % (self.name, policy))
-				return True
-		# n day[s]
-		elif [ m for m in [ re.match('^(\d+) day[s]?$', policy) ] if m != None ]:
-			if self.creation.date() >= datetime.today().date() - timedelta(days=int(m.group(1))):
-				logging.debug("Snapshot %s matches policy %s." % (self.name, policy))
-				return True
-		# n week[s]
-		elif [ m for m in [ re.match('^(\d+) week[s]?$', policy) ] if m != None ]:
-			if self.creation.date() >= datetime.today().date() - timedelta(weeks=int(m.group(1))):
-				logging.debug("Snapshot %s matches policy %s." % (self.name, policy))
-				return True
-		# n (monday|tuesday|wednesday|thursday|friday|saturday|sunday)[s]
-		elif [ m for m in [ re.match('^(\d+) (monday|tuesday|wednesday|thursday|friday|saturday|sunday)[s]?$', policy) ] if m != None ]:
-			if weekdays[self.creation.weekday()] == m.group(2) and self.creation.date() >= datetime.today().date() - timedelta(weeks=int(m.group(1))):
-				logging.debug("Snapshot %s matches policy %s." % (self.name, policy))
-				return True
-		# n n-th weekday of the month
-		elif [ m for m in [ re.match('^(\d+) (\d+)(st|nd|rd|th) (monday|tuesday|wednesday|thursday|friday|saturday|sunday) of the month$', policy) ] if m != None ]:
-			if int(self.creation.date().strftime("%d")) <= 7:
-				weekdayofthemonth = 1
-			elif int(self.creation.date().strftime("%d")) <= 14:
-				weekdayofthemonth = 2
-			elif int(self.creation.date().strftime("%d")) <= 21:
-				weekdayofthemonth = 3
-			elif int(self.creation.date().strftime("%d")) <= 28:
-				weekdayofthemonth = 4
-			else:
-				weekdayofthemonth = 5
-			if weekdays[self.creation.weekday()] == m.group(4) and weekdayofthemonth == int(m.group(2)):
-				if int(datetime.today().date().strftime("%m")) == int(check_output(["date", "+%m", "--date", "last %s" % m.group(4)])):
-					date = MonthDelta(datetime.today().replace(day=1), int(m.group(1)) - 1)
-				else:
-					date = MonthDelta(datetime.today().replace(day=1), int(m.group(1)))
-				if self.creation.date() >= date.date():
-					logging.debug("Snapshot %s matches policy %s." % (self.name, policy))
-					return True
-		# n n-th day of the month
-		elif [ m for m in [ re.match('^(\d+) (\d+)(st|nd|rd|th) day of the month$', policy) ] if m != None ]:
-			if int(self.creation.date().strftime("%d")) == int(m.group(2)) and self.creation.date() >= MonthDelta(datetime.today().replace(day=1), int(m.group(1)) - 1).date():
-				logging.debug("Snapshot %s matches policy %s." % (self.name, policy))
-				return True
-		# n n-th day of the quarter
-		elif [ m for m in [ re.match('^(\d+) (\d+)(st|nd|rd|th) day of the quarter$', policy) ] if m != None ]:
-			if int(self.creation.date().strftime("%d")) == int(m.group(2)) and int(self.creation.date().strftime("%m")) % 3 == 1 and self.creation.date() >= MonthDelta(datetime.today().replace(day=1), int(m.group(1)) * 3).date():
-				logging.debug("Snapshot %s matches policy %s." % (self.name, policy))
-				return True
-		# @snapshot
-		elif [ m for m in [ re.match('^@([^ ]*)$', policy) ] if m != None ]:
-			if self.name.split('@')[1] == m.group(1):
-				logging.debug("Snapshot %s matches policy %s." % (self.name, policy))
-				return True
-		else:
-			logging.critical("unknown policy: %s" % policy)
-			sys.exit(1)
-		return False
 
 	def getKeep(self):
 

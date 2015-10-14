@@ -14,11 +14,21 @@
 #source_ceph_keyring = /etc/ceph/<stdkeyring name>
 #
 #[VMLIST]
-#backups = <space separated xen machines>
+#<space separated xen machines>
+#backups = 
+# 
+#[RADOSGW]
+#geographies = default
+#
+#[POLICY]
+## h: 1 every hour, d: 1 every day, w: 1 every week, m: 1 every month, y: 1 every year
+#time_to_live = 30d,4w,12m,1y
 #
 
 import subprocess, time, re, ConfigParser, logging, sys, os, getopt, fcntl
 from CephPool import *
+from CephSnapshotsCleanup import *
+from backup_vm import *
 
 pid_file = '/var/run/cephlivebackup.pid'
 logfile = "/var/log/cephbackup/backup.log"
@@ -26,6 +36,8 @@ configfile = "/etc/cephbackup.conf"
 
 silent = False
 dryrun = False
+cleanOnly = False
+loggingLevel = logging.DEBUG
 
 class StreamToLogger(object):
    """
@@ -54,60 +66,6 @@ def get_local_backup_vms():
    
    return result
 
-def backup_vm( vmhostname ):
-	vmid = data = re.split('\.', vmhostname)[0]
-
-	sourceDataset = backup_vm.sourcePool.getDataset(vmid+'.vm')
-	backupDataset = backup_vm.backupPool.getDatasetOrCreate(vmid+'.vm')
-    
-	lastBackupIncrementSnapshot = None
-	lastSourceIncrementSnapshot = None
-	if sourceDataset != None :
-		lastSourceIncrementSnapshot = sourceDataset.getLastBackupSnapshot()
-		# do some cleaning if last run failed
-		currentSourceSnapshot = sourceDataset.getCurrentBackupSnapshot()
-		if currentSourceSnapshot != None:
-			if not currentSourceSnapshot.renameToLastBackup():
-				sys.exit(2)
-
-		if lastSourceIncrementSnapshot == None and backupDataset != None:
-			lastSourceIncrementSnapshot = backupDataset.getMostRecentMatchingSnapshot( sourceDataset.snapshots )
-	else:
-		logging.error("Impossible to find source dataset for VM %s" % (vmid) )
-
-	if backupDataset != None:
-		# do some cleaning if last failed
-		currentBackupSnapshot = backupDataset.getCurrentBackupSnapshot()
-		if currentBackupSnapshot != None:
-			if not currentBackupSnapshot.renameToLastBackup():
-				sys.exit(2)
-
-		lastBackupIncrementSnapshot = backupDataset.getLastBackupSnapshot()
-		# maybe we could find another old one 
-		if lastBackupIncrementSnapshot == None and sourceDataset != None:
-			lastBackupIncrementSnapshot = sourceDataset.getMostRecentMatchingSnapshot( backupDataset.snapshots )
-	else:
-		logging.error("Impossible to find backup dataset for VM %s" % (vmid) )
-
-	newsnapshot = sourceDataset.createBackupSnapshot()
-	if lastSourceIncrementSnapshot != None and lastBackupIncrementSnapshot != None:
-		# incremental send possible
-		success = sourceDataset.exportSnapshot(backupDataset, newsnapshot, lastSourceIncrementSnapshot)            
-	else:
-		# we create a new fresh send
-		success = sourceDataset.exportSnapshot(backupDataset, newsnapshot)
-
-	if success:
-		#if lastLocalIncrementSnapshot != None:
-		#    lastLocalIncrementSnapshot.destroy()
-		newsnapshot.renameToLastBackup()
-		backupDataset = backup_vm.backupPool.getDataset(vmid +'.vm')
-		if backupDataset != None:
-			backupDataset.rollBackupNames()
-	else:
-		logging.error("Cannot import: mmight need to clean old snapshots.")
-
-
 # be sure runs only once
 fp = open(pid_file, 'w')
 try:
@@ -117,28 +75,30 @@ except IOError:
     sys.exit(0)
 
 try:
-  opts, args = getopt.getopt( sys.argv[1:] ,"shd",["silent", "dry-run", "config-file="])
+  opts, args = getopt.getopt( sys.argv[1:] ,"shdc",["silent", "dry-run", "config-file=", "clean-only"])
 except getopt.GetoptError:
   print 'usage: -s or --silent / -d or --dry-run / --config-file=<path>'
   sys.exit(2)
 
 for opt, arg in opts:
-      if opt == '-h':
-         print ' -s: silent'
-         sys.exit()
-      elif opt in ("-s", "--silent"):
-         silent = True
-      elif opt in ("-d", "--dry-run"):
-         dryrun = True
-      elif opt in ("--config-file"):
-	configfile = arg
+	if opt == '-h':
+		print ' -s: silent'
+		sys.exit()
+	elif opt in ("-s", "--silent"):
+		silent = True
+	elif opt in ("-d", "--dry-run"):
+		dryrun = True
+	elif opt == "--config-file":
+		configfile = arg
+	elif opt in ("-c", "--clean-only"):
+		cleanOnly = True
 
 if (silent) :
     # verify arancloud log
     if not os.path.exists(os.path.dirname(logfile)):
         os.makedirs(os.path.dirname(logfile))
     logging.basicConfig(
-       level=logging.DEBUG,
+       level=loggingLevel,
        format='%(asctime)s:%(levelname)s:%(name)s:%(message)s',
        filename=logfile,
        filemode='a'
@@ -152,11 +112,15 @@ if (silent) :
     sle = StreamToLogger(stderr_logger, logging.ERROR)
     sys.stderr = sle
 else:
-    logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.DEBUG)
+    logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=loggingLevel)
 
-Config = ConfigParser.SafeConfigParser({'source_ceph_conf': '/etc/ceph/ceph.conf', 'backup_ceph_conf':'/etc/ceph/ceph.backup.conf' , 'source_ceph_user': 'admin', 'backup_ceph_user': 'backup', 'source_ceph_pool': 'rbd', 'backup_ceph_pool': 'rbdbackup', 'source_ceph_keyring': None, 'backup_ceph_keyring': None })
-config_candidates = [configfile]
-Config.read( config_candidates )
+Config = ConfigParser.SafeConfigParser({'source_ceph_conf': '/etc/ceph/ceph.conf', 'backup_ceph_conf':'/etc/ceph/ceph.backup.conf' , 'source_ceph_user': 'admin', 'backup_ceph_user': 'backup', 'source_ceph_pool': 'rbd', 'backup_ceph_pool': 'rbdbackup', 'source_ceph_keyring': None, 'backup_ceph_keyring': None, 'time_to_live': '30d,4w,12m,1y' })
+configCandidates = [configfile]
+found = Config.read( configCandidates )
+missing = set(configCandidates) - set(found)
+logging.info('Found config files: %s' % sorted(found))
+logging.info('Missing files     : %s'% sorted(missing))
+ 
 livebackups = re.split('[\s]+', Config.get("VMLIST", "backups") )
 source_ceph_conf = Config.get("MAIN", "source_ceph_conf")
 backup_ceph_conf = Config.get("MAIN", "backup_ceph_conf")
@@ -166,15 +130,28 @@ source_ceph_user = Config.get("MAIN", "source_ceph_user")
 backup_ceph_user = Config.get("MAIN", "backup_ceph_user")
 source_ceph_keyring = Config.get("MAIN", "source_ceph_keyring")
 backup_ceph_keyring = Config.get("MAIN", "backup_ceph_keyring")
+policy = Config.get("POLICY", "time_to_live")
 
 try:
-    backup_vm.backupPool = CephPool(backup_ceph_pool, backup_ceph_conf, backup_ceph_user, backup_ceph_keyring, dryrun)
-    backup_vm.sourcePool = CephPool(source_ceph_pool, source_ceph_conf, source_ceph_user, source_ceph_keyring, dryrun)
+	backup_vm.backupPool = CephPool(backup_ceph_pool, backup_ceph_conf, backup_ceph_user, backup_ceph_keyring, dryrun)
+	backup_vm.sourcePool = CephPool(source_ceph_pool, source_ceph_conf, source_ceph_user, source_ceph_keyring, dryrun)
 
-    for (name) in get_local_backup_vms():
-       timestamp = time.strftime("%Y%m%d-%H:%M", time.gmtime())
-       #print timestamp, uuid, name
-       backup_vm( name )
+	CephSnapshotsCleanup.logLevel = loggingLevel
+	for (name) in get_local_backup_vms():
+		timestamp = time.strftime("%Y%m%d-%H:%M", time.gmtime())
+		#print timestamp, uuid, name
+		if cleanOnly == False:
+			backup_vm( name )
+		cleaner = CephSnapshotsCleanup(backup_vm.backupPool, name, policy, dryrun)
+		cleaner.cleanAll()
+	
+	rgw_geo = Config.get("RADOSGW", "geographies")
+	if rgw_geo != None:
+		rgwbackups = re.split('[\s]+', rgw_geo)
+		source = CephRGWPool(rgwbackups, backup_ceph_conf, backup_ceph_user, backup_ceph_keyring, dryrun)
+		backup = CephRGWPool(rgwbackups, backup_ceph_conf, backup_ceph_user, backup_ceph_keyring, dryrun)
+		backup_radosgw(source, backup)
+		
 except CephError, e:
   print e
   sys.exit(2)
