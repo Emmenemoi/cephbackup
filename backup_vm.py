@@ -3,10 +3,15 @@
 import subprocess, time, re, logging
 
 def backup_vm( vmhostname ):
-	vmid = data = re.split('\.', vmhostname)[0]
+	data = re.split('-', vmhostname)
+	if ( len(data) > 1 ):
+		vmid = data[1]
+	else:
+		vmid = data[0]
 
-	sourceDataset = backup_vm.sourcePool.getDataset(vmid+'.vm')
-	backupDataset = backup_vm.backupPool.getDatasetOrCreate(vmid+'.vm')
+	image_name = 'vm-'+vmid
+	sourceDataset = backup_vm.sourcePool.getDataset( image_name )
+	backupDataset = backup_vm.backupPool.getDatasetOrCreate( image_name )
     
 	lastBackupIncrementSnapshot = None
 	lastSourceIncrementSnapshot = None
@@ -49,7 +54,7 @@ def backup_vm( vmhostname ):
 		#if lastLocalIncrementSnapshot != None:
 		#    lastLocalIncrementSnapshot.destroy()
 		newsnapshot.renameToLastBackup()
-		backupDataset = backup_vm.backupPool.getDataset(vmid +'.vm')
+		backupDataset = backup_vm.backupPool.getDataset( image_name )
 		if backupDataset != None:
 			backupDataset.rollBackupNames()
 		# keep only last snapshot available for later increment

@@ -119,7 +119,7 @@ configCandidates = [configfile]
 found = Config.read( configCandidates )
 missing = set(configCandidates) - set(found)
 logging.info('Found config files: %s' % sorted(found))
-logging.info('Missing files     : %s'% sorted(missing))
+logging.debug('Missing files     : %s'% sorted(missing))
  
 livebackups = re.split('[\s]+', Config.get("VMLIST", "backups") )
 source_ceph_conf = Config.get("MAIN", "source_ceph_conf")
@@ -144,13 +144,14 @@ try:
 			backup_vm( name )
 		cleaner = CephSnapshotsCleanup(backup_vm.backupPool, name, policy, dryrun)
 		cleaner.cleanAll()
-	
-	rgw_geo = Config.get("RADOSGW", "geographies")
-	if rgw_geo != None:
-		rgwbackups = re.split('[\s]+', rgw_geo)
-		source = CephRGWPool(rgwbackups, backup_ceph_conf, backup_ceph_user, backup_ceph_keyring, dryrun)
-		backup = CephRGWPool(rgwbackups, backup_ceph_conf, backup_ceph_user, backup_ceph_keyring, dryrun)
-		backup_radosgw(source, backup)
+
+	if Config.has_section("RADOSGW"):
+	    rgw_geo = Config.get("RADOSGW", "geographies")
+	    if rgw_geo != None:
+		    rgwbackups = re.split('[\s]+', rgw_geo)
+		    source = CephRGWPool(rgwbackups, backup_ceph_conf, backup_ceph_user, backup_ceph_keyring, dryrun)
+		    backup = CephRGWPool(rgwbackups, backup_ceph_conf, backup_ceph_user, backup_ceph_keyring, dryrun)
+		    backup_radosgw(source, backup)
 		
 except CephError, e:
   print e

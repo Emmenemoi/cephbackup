@@ -5,7 +5,7 @@ import logging
 from xml.dom.minidom import parse
 from subprocess import Popen, PIPE, check_output, CalledProcessError, STDOUT
 from datetime import datetime, timedelta, date
-from cepherror import *
+from CephError import *
 try:
 	import rados
 	import rbd
