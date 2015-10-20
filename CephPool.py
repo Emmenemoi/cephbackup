@@ -175,7 +175,7 @@ class Dataset(object):
 				self.snapshots.append(snapshot)
 			self.sortSnaps()
 			for s in self.snapshots:
-				logging.debug("%s (%s)" % (s.name, s.creation))
+				logging.debug("%s/%s (%s)" % (self.name, s.name, s.creation))
 
 	def __del__(self):
 		"""Delete Dataset."""

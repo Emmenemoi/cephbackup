@@ -78,24 +78,25 @@ class CephSnapshotsCleanup(object):
 					or 
 					(
 						len(self._snaps['d']) > 0 and
-						snap.creation <= self._snaps['d'][-1].creation + relativedelta(days=-1, hour=0,minute=0,second=0) and
+						snap.creation < self._snaps['d'][-1].creation + relativedelta(hour=0,minute=0,second=0) and
 						snap.creation >= self._snaps['d'][0].creation + relativedelta(days=-31, hour=0,minute=0,second=0) 
 					)
 				):
 				self._snaps['d'].append(snap)
 				continue
+			logging.debug( "Not for d : %s <= %s and >= %s" % (snap.creation, self._snaps['d'][-1].creation + relativedelta(hour=0,minute=0,second=0), self._snaps['d'][0].creation + relativedelta(days=-31, hour=0,minute=0,second=0)))
 				
 			# not same week and last 52 weeks only
 			if ( 
 					(
 						len(self._snaps['w']) == 0 and
 						len(self._snaps['d']) > 0 and
-						snap.creation <= self._snaps['d'][0].creation + relativedelta(weeks=-1, weekday=0,hour=0,minute=0,second=0)
+						snap.creation <= self._snaps['d'][0].creation + relativedelta(weekday=0,hour=0,minute=0,second=0)
 					)
 					or 
 					(
 						len(self._snaps['w']) > 0 and
-						snap.creation <= self._snaps['w'][-1].creation + relativedelta(weeks=-1, weekday=0,hour=0,minute=0,second=0) and
+						snap.creation < self._snaps['w'][-1].creation + relativedelta(weekday=0,hour=0,minute=0,second=0) and
 						snap.creation >= self._snaps['w'][0].creation + relativedelta(weeks=-52, weekday=0,hour=0,minute=0,second=0) 
 					)
 				):
@@ -107,12 +108,12 @@ class CephSnapshotsCleanup(object):
 					(
 						len(self._snaps['m']) == 0 and
 						len(self._snaps['w']) > 0 and
-						snap.creation <= self._snaps['w'][0].creation + relativedelta(months=-1, day=1,hour=0,minute=0,second=0)
+						snap.creation <= self._snaps['w'][0].creation + relativedelta(day=1,hour=0,minute=0,second=0)
 					)
 					or 
 					(
 						len(self._snaps['m']) > 0 and
-						snap.creation <= self._snaps['m'][-1].creation + relativedelta(months=-1, day=1,hour=0,minute=0,second=0) and
+						snap.creation < self._snaps['m'][-1].creation + relativedelta(day=1,hour=0,minute=0,second=0) and
 						snap.creation >= self._snaps['m'][0].creation + relativedelta(days=-365, day=1,hour=0,minute=0,second=0)
 					)
 				):
@@ -124,12 +125,12 @@ class CephSnapshotsCleanup(object):
 					(
 						len(self._snaps['y']) == 0 and
 						len(self._snaps['m']) > 0 and
-						snap.creation <= self._snaps['m'][0].creation + relativedelta(years=-1, month=1,day=1,hour=0,minute=0,second=0)
+						snap.creation <= self._snaps['m'][0].creation + relativedelta(month=1,day=1,hour=0,minute=0,second=0)
 					)
 					or 
 					(
 						len(self._snaps['y']) > 0 and
-						snap.creation <= self._snaps['y'][-1].creation + timedelta(years=-1, month=1,day=1,hour=0,minute=0,second=0)
+						snap.creation < self._snaps['y'][-1].creation + timedelta(month=1,day=1,hour=0,minute=0,second=0)
 					)
 				):
 				self._snaps['y'].append(snap)

@@ -61,7 +61,7 @@ def get_local_backup_vms():
       #data = re.split('[\s]+', dataset.name)
       #uuid = data[1]
       #name = data[0]
-      if ( dataset.name in livebackups ) :
+      if ( dataset.name in livebackups or dataset.name.replace('vm-','') in livebackups ) :
           result += [dataset.name]
    
    return result
