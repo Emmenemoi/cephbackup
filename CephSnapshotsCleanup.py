@@ -84,7 +84,8 @@ class CephSnapshotsCleanup(object):
 				):
 				self._snaps['d'].append(snap)
 				continue
-			logging.debug( "Not for d : %s <= %s and >= %s" % (snap.creation, self._snaps['d'][-1].creation + relativedelta(hour=0,minute=0,second=0), self._snaps['d'][0].creation + relativedelta(days=-31, hour=0,minute=0,second=0)))
+			if ( len(self._snaps['d']) > 0 ):
+			    logging.debug( "Not for d : %s <= %s and >= %s" % (snap.creation, self._snaps['d'][-1].creation + relativedelta(hour=0,minute=0,second=0), self._snaps['d'][0].creation + relativedelta(days=-31, hour=0,minute=0,second=0)))
 				
 			# not same week and last 52 weeks only
 			if ( 
