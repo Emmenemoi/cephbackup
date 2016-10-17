@@ -4,19 +4,23 @@
 #   Config file cephbackup.conf should contain:
 #
 #[MAIN]
-#source_ceph_conf = 
-#backup_ceph_conf = 
+#source_ceph_conf =
+#backup_ceph_conf =
 #source_ceph_pool = rbd
 #backup_ceph_pool = rbdbackup
-#backup_ceph_user = backup 
-#source_ceph_user = admin 
+#backup_ceph_user = backup
+#source_ceph_user = admin
 #backup_ceph_keyring = /etc/ceph/<stdkeyring name>
 #source_ceph_keyring = /etc/ceph/<stdkeyring name>
 #
 #[VMLIST]
 #<space separated xen machines>
-#backups = 
-# 
+#backups =
+#
+#[RBDLIST]
+#<space separated RBD names>
+#backups =
+#
 #[RADOSGW]
 #geographies = default
 #
@@ -37,7 +41,7 @@ configfile = "/etc/cephbackup.conf"
 silent = False
 dryrun = False
 cleanOnly = False
-loggingLevel = logging.DEBUG
+loggingLevel = logging.INFO
 
 class StreamToLogger(object):
    """
@@ -47,7 +51,7 @@ class StreamToLogger(object):
       self.logger = logger
       self.log_level = log_level
       self.linebuf = ''
- 
+
    def write(self, buf):
       for line in buf.rstrip().splitlines():
          self.logger.log(self.log_level, line.rstrip())
@@ -63,21 +67,13 @@ def get_local_backup_vms():
       #name = data[0]
       if ( dataset.name in livebackups or dataset.name.replace('vm-','') in livebackups ) :
           result += [dataset.name]
-   
+
    return result
 
-# be sure runs only once
-fp = open(pid_file, 'w')
 try:
-    fcntl.lockf(fp, fcntl.LOCK_EX | fcntl.LOCK_NB)
-except IOError:
-    # another instance is running
-    sys.exit(0)
-
-try:
-  opts, args = getopt.getopt( sys.argv[1:] ,"shdc",["silent", "dry-run", "config-file=", "clean-only"])
+  opts, args = getopt.getopt( sys.argv[1:] ,"shdcv",["silent", "dry-run", "config-file=", "pid-file=", "log-file=", "clean-only", "verbose"])
 except getopt.GetoptError:
-  print 'usage: -s or --silent / -d or --dry-run / --config-file=<path>'
+  print 'usage: -s or --silent / -d or --dry-run / --config-file <path> / --pid-file <path> / --log-file <path> / -v or --verbose'
   sys.exit(2)
 
 for opt, arg in opts:
@@ -90,8 +86,15 @@ for opt, arg in opts:
 		dryrun = True
 	elif opt == "--config-file":
 		configfile = arg
+	elif opt == "--pid-file":
+		pid_file = arg
+	elif opt == "--log-file":
+		logfile = arg
 	elif opt in ("-c", "--clean-only"):
 		cleanOnly = True
+	elif opt in ("-v", "--verbose"):
+		loggingLevel = logging.DEBUG
+
 
 if (silent) :
     # verify arancloud log
@@ -107,12 +110,22 @@ if (silent) :
     stdout_logger = logging.getLogger('STDOUT')
     slo = StreamToLogger(stdout_logger, logging.INFO)
     sys.stdout = slo
-     
+
     stderr_logger = logging.getLogger('STDERR')
     sle = StreamToLogger(stderr_logger, logging.ERROR)
     sys.stderr = sle
 else:
     logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=loggingLevel)
+
+
+# be sure runs only once
+fp = open(pid_file, 'w')
+try:
+    fcntl.lockf(fp, fcntl.LOCK_EX | fcntl.LOCK_NB)
+except IOError:
+    # another instance is running
+    sys.exit(0)
+
 
 Config = ConfigParser.SafeConfigParser({'source_ceph_conf': '/etc/ceph/ceph.conf', 'backup_ceph_conf':'/etc/ceph/ceph.backup.conf' , 'source_ceph_user': 'admin', 'backup_ceph_user': 'backup', 'source_ceph_pool': 'rbd', 'backup_ceph_pool': 'rbdbackup', 'source_ceph_keyring': None, 'backup_ceph_keyring': None, 'time_to_live': '30d,4w,12m,1y' })
 configCandidates = [configfile]
@@ -120,8 +133,13 @@ found = Config.read( configCandidates )
 missing = set(configCandidates) - set(found)
 logging.info('Found config files: %s' % sorted(found))
 logging.debug('Missing files     : %s'% sorted(missing))
- 
-livebackups = re.split('[\s]+', Config.get("VMLIST", "backups") )
+
+livebackups = []
+if Config.has_section("VMLIST"):
+	livebackups += re.split('[\s]+', Config.get("VMLIST", "backups") )
+if Config.has_section("RBDLIST"):
+	livebackups += re.split('[\s]+', Config.get("RBDLIST", "backups") )
+
 source_ceph_conf = Config.get("MAIN", "source_ceph_conf")
 backup_ceph_conf = Config.get("MAIN", "backup_ceph_conf")
 source_ceph_pool = Config.get("MAIN", "source_ceph_pool" )
@@ -152,7 +170,7 @@ try:
 		    source = CephRGWPool(rgwbackups, backup_ceph_conf, backup_ceph_user, backup_ceph_keyring, dryrun)
 		    backup = CephRGWPool(rgwbackups, backup_ceph_conf, backup_ceph_user, backup_ceph_keyring, dryrun)
 		    backup_radosgw(source, backup)
-		
+
 except CephError, e:
   print e
   sys.exit(2)

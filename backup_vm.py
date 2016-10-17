@@ -2,17 +2,17 @@
 
 import subprocess, time, re, logging
 
-def backup_vm( vmhostname ):
-	data = re.split('-', vmhostname)
+def backup_vm( image_name ):
+	data = re.split('-', image_name)
 	if ( len(data) > 1 ):
 		vmid = data[1]
 	else:
 		vmid = data[0]
 
-	image_name = 'vm-'+vmid
+	# image_name = 'vm-'+vmid
 	sourceDataset = backup_vm.sourcePool.getDataset( image_name )
 	backupDataset = backup_vm.backupPool.getDatasetOrCreate( image_name )
-    
+
 	lastBackupIncrementSnapshot = None
 	lastSourceIncrementSnapshot = None
 	if sourceDataset != None :
@@ -23,7 +23,8 @@ def backup_vm( vmhostname ):
 			if not currentSourceSnapshot.renameToLastBackup():
 				sys.exit(2)
 
-		if lastSourceIncrementSnapshot == None and backupDataset != None:
+		# be sure it exists or maybe we could find another old one
+		if backupDataset != None and ( lastSourceIncrementSnapshot == None or backupDataset.getSnapshot( lastSourceIncrementSnapshot.name ) == None ) :
 			lastSourceIncrementSnapshot = backupDataset.getMostRecentMatchingSnapshot( sourceDataset.snapshots )
 	else:
 		logging.error("Impossible to find source dataset for VM %s" % (vmid) )
@@ -36,8 +37,8 @@ def backup_vm( vmhostname ):
 				sys.exit(2)
 
 		lastBackupIncrementSnapshot = backupDataset.getLastBackupSnapshot()
-		# maybe we could find another old one 
-		if lastBackupIncrementSnapshot == None and sourceDataset != None:
+		# be sure it exists or maybe we could find another old one
+		if sourceDataset != None and ( lastBackupIncrementSnapshot == None or sourceDataset.getSnapshot( lastBackupIncrementSnapshot.name ) == None ) :
 			lastBackupIncrementSnapshot = sourceDataset.getMostRecentMatchingSnapshot( backupDataset.snapshots )
 	else:
 		logging.error("Impossible to find backup dataset for VM %s" % (vmid) )
@@ -45,7 +46,7 @@ def backup_vm( vmhostname ):
 	newsnapshot = sourceDataset.createBackupSnapshot()
 	if lastSourceIncrementSnapshot != None and lastBackupIncrementSnapshot != None:
 		# incremental send possible
-		success = sourceDataset.exportSnapshot(backupDataset, newsnapshot, lastSourceIncrementSnapshot)            
+		success = sourceDataset.exportSnapshot(backupDataset, newsnapshot, lastSourceIncrementSnapshot)
 	else:
 		# we create a new fresh send
 		success = sourceDataset.exportSnapshot(backupDataset, newsnapshot)
@@ -55,10 +56,11 @@ def backup_vm( vmhostname ):
 		#    lastLocalIncrementSnapshot.destroy()
 		newsnapshot.renameToLastBackup()
 		backupDataset = backup_vm.backupPool.getDataset( image_name )
+		lastBackupSnapshot = None
 		if backupDataset != None:
 			backupDataset.rollBackupNames()
 		# keep only last snapshot available for later increment
-		lastBackupSnapshot = sourceDataset.getMostRecentMatchingSnapshot( backupDataset.snapshots )
+			lastBackupSnapshot = sourceDataset.getMostRecentMatchingSnapshot( backupDataset.snapshots )
 		if lastBackupSnapshot != None:
 			# lastBackupSnapshot exists on both sides for later increment: delete others (olders)
 			logging.info("cleaning dataset %s from pool %s, keep %s" % (sourceDataset.name, sourceDataset.pool.name, lastBackupSnapshot.name) )
