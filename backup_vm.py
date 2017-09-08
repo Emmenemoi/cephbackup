@@ -3,6 +3,19 @@
 import subprocess, time, re, logging
 
 def toggleVMState(xapi_session, name, toPause=True):
+	if name.startswith("VHD-"):
+		try:
+			vdi_ref = xapi_session.xenapi.VDI.get_by_uuid(name.replace("VHD-",""))
+			vbd_refs = xapi_session.xenapi.VDI.get_VBDs(vdi_ref)
+			for vbd_ref in vbd_refs:
+				vm_ref = xapi_session.xenapi.VBD.get_VM(vbd_ref)
+				name = xapi_session.xenapi.VM.get_name_label(vm_ref)
+				toggleVMState(xapi_session, name, toPause=toPause)
+		except e:
+			loggin.error(e)
+		finally:
+			return
+			
 	vm_ref = next(iter(xapi_session.xenapi.VM.get_by_name_label(name) or []), None)
 	if vm_ref is not None:
 		#record = xapi_session.xenapi.VM.get_record(vm_ref)
@@ -27,7 +40,7 @@ def backup_vm( image_name , xapi_session = None):
 	else:
 		vmid = data[0]
 
-	# image_name = 'vm-'+vmid
+	# image_name = 'vm-'+vmid or VHD-UUID
 	sourceDataset = backup_vm.sourcePool.getDataset( image_name )
 	backupDataset = backup_vm.backupPool.getDatasetOrCreate( image_name )
 
