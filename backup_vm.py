@@ -15,6 +15,9 @@ def toggleVMState(xapi_session, name, toPause=True):
 			xapi_session.xenapi.VM.unpause(vm_ref)
 		power = xapi_session.xenapi.VM.get_power_state(vm_ref)
 		logging.info( "New powerstate of %s : %s" % (name, power) )
+	else:
+		logging.info( "VM not recognised  : %s" % (name) )
+	
 
 
 def backup_vm( image_name , xapi_session = None):
