@@ -171,6 +171,7 @@ if xenserver_master_host is not None:
 	xapi_session = XenAPI.Session(xenserver_master_host, ignore_ssl=True)
 	try:
 		xapi_session.xenapi.login_with_password(xenserver_user, xenserver_pwd, "1.0", "cephbackup.py")
+		logging.info("XAPI connected to %s" % xenserver_master_host)
 	except XenAPI.Failure as f:
 		logging.error( "Failed to acquire a session: %s" % f.details)
 		sys.exit(1)
@@ -184,7 +185,7 @@ try:
 		timestamp = time.strftime("%Y%m%d-%H:%M", time.gmtime())
 		#print timestamp, uuid, name
 		if cleanOnly == False:
-			backup_vm( name, xapi_session )
+			backup_vm( name, xapi_session=xapi_session )
 		cleaner = CephSnapshotsCleanup(backup_vm.backupPool, name, policy, dryrun)
 		cleaner.cleanAll()
 
