@@ -201,5 +201,6 @@ except CephError, e:
   sys.exit(2)
 
 finally:
-	xapi_session.xenapi.session.logout()
+	if xapi_session is not None:
+		xapi_session.xenapi.session.logout()
 
