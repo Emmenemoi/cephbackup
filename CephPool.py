@@ -50,8 +50,8 @@ class CephPool(object):
 				self.__available = self.getClusterStats()["kb_avail"]
 				self.refreshDatasets()
 
-		except rados.Error:
-			raise CephError(self, 'Pool Exception for %s' % (self.name))
+		except rados.Error, e:
+			raise CephError(self, 'Pool Exception for %s: %s' % (self.name, e))
 
 
 	def __exit__(self, exc_type, exc_value, traceback):
