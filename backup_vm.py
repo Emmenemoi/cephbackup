@@ -2,7 +2,22 @@
 
 import subprocess, time, re, logging
 
-def backup_vm( image_name ):
+def toggleVMState(xapi_session, name, toPause=True):
+	vm_ref = next(iter(xapi_session.xenapi.VM.get_by_name_label(name) or []), None)
+	if vm_ref is not None:
+		#record = xapi_session.xenapi.VM.get_record(vm_ref)
+		#logging.info( "Details of vm-100 : %s" % record)
+		power = xapi_session.xenapi.VM.get_power_state(vm_ref)
+		logging.debug( "Existing powerstate of %s : %s" % (name, power) )
+		if power == "Running" and toPause:
+			xapi_session.xenapi.VM.pause(vm_ref)
+		if power == "Paused" and not toPause:
+			xapi_session.xenapi.VM.unpause(vm_ref)
+		power = xapi_session.xenapi.VM.get_power_state(vm_ref)
+		logging.info( "New powerstate of %s : %s" % (name, power) )
+
+
+def backup_vm( image_name , xapi_session = None):
 	data = re.split('-', image_name)
 	if ( len(data) > 1 ):
 		vmid = data[1]
@@ -43,7 +58,15 @@ def backup_vm( image_name ):
 	else:
 		logging.error("Impossible to find backup dataset for VM %s" % (vmid) )
 
+	if xapi_session is not None:
+		toggleVMState(xapi_session, image_name)
+
 	newsnapshot = sourceDataset.createBackupSnapshot()
+
+	if xapi_session is not None:
+		toggleVMState(xapi_session, image_name, False)
+
+	
 	if lastSourceIncrementSnapshot != None and lastBackupIncrementSnapshot != None:
 		# incremental send possible
 		success = sourceDataset.exportSnapshot(backupDataset, newsnapshot, lastSourceIncrementSnapshot)

@@ -12,6 +12,9 @@
 #source_ceph_user = admin
 #backup_ceph_keyring = /etc/ceph/<stdkeyring name>
 #source_ceph_keyring = /etc/ceph/<stdkeyring name>
+#xenserver_master = 
+#xenserver_user = 
+#xenserver_password = 
 #
 #[VMLIST]
 #<space separated xen machines>
@@ -34,6 +37,9 @@ from CephPool import *
 from CephSnapshotsCleanup import *
 from backup_vm import *
 
+## Xenserver compat for atomic snapshots
+import XenAPI
+
 pid_file = '/var/run/cephlivebackup.pid'
 logfile = "/var/log/cephbackup/backup.log"
 configfile = "/etc/cephbackup.conf"
@@ -42,6 +48,9 @@ silent = False
 dryrun = False
 cleanOnly = False
 loggingLevel = logging.INFO
+
+RBDPOOL_PREFIX = "RBD_XenStorage-"
+VDI_PREFIX = "VHD-"
 
 class StreamToLogger(object):
    """
@@ -70,6 +79,8 @@ def get_local_backup_vms():
 
    return result
 
+
+		
 try:
   opts, args = getopt.getopt( sys.argv[1:] ,"shdcv",["silent", "dry-run", "config-file=", "pid-file=", "log-file=", "clean-only", "verbose"])
 except getopt.GetoptError:
@@ -127,7 +138,7 @@ except IOError:
     sys.exit(0)
 
 
-Config = ConfigParser.SafeConfigParser({'source_ceph_conf': '/etc/ceph/ceph.conf', 'backup_ceph_conf':'/etc/ceph/ceph.backup.conf' , 'source_ceph_user': 'admin', 'backup_ceph_user': 'backup', 'source_ceph_pool': 'rbd', 'backup_ceph_pool': 'rbdbackup', 'source_ceph_keyring': None, 'backup_ceph_keyring': None, 'time_to_live': '30d,4w,12m,1y' })
+Config = ConfigParser.SafeConfigParser({'source_ceph_conf': '/etc/ceph/ceph.conf', 'backup_ceph_conf':'/etc/ceph/ceph.backup.conf' , 'source_ceph_user': 'admin', 'backup_ceph_user': 'backup', 'source_ceph_pool': 'rbd', 'backup_ceph_pool': 'rbdbackup', 'source_ceph_keyring': None, 'backup_ceph_keyring': None, 'xenserver_master':None, 'xenserver_user':None, 'xenserver_password':None, 'time_to_live': '30d,4w,12m,1y' })
 configCandidates = [configfile]
 found = Config.read( configCandidates )
 missing = set(configCandidates) - set(found)
@@ -148,7 +159,21 @@ source_ceph_user = Config.get("MAIN", "source_ceph_user")
 backup_ceph_user = Config.get("MAIN", "backup_ceph_user")
 source_ceph_keyring = Config.get("MAIN", "source_ceph_keyring")
 backup_ceph_keyring = Config.get("MAIN", "backup_ceph_keyring")
+
+xenserver_master_host = Config.get("MAIN", "xenserver_master")
+xenserver_user = Config.get("MAIN", "xenserver_user")
+xenserver_pwd = Config.get("MAIN", "xenserver_password")
+
 policy = Config.get("POLICY", "time_to_live")
+
+xapi_session = None
+if xenserver_master_host is not None:
+	xapi_session = XenAPI.Session(xenserver_master_host, ignore_ssl=True)
+	try:
+		xapi_session.xenapi.login_with_password(xenserver_user, xenserver_pwd, "1.0", "cephbackup.py")
+	except XenAPI.Failure as f:
+		logging.error( "Failed to acquire a session: %s" % f.details)
+		sys.exit(1)
 
 try:
 	backup_vm.backupPool = CephPool(backup_ceph_pool, backup_ceph_conf, backup_ceph_user, backup_ceph_keyring, dryrun)
@@ -159,7 +184,7 @@ try:
 		timestamp = time.strftime("%Y%m%d-%H:%M", time.gmtime())
 		#print timestamp, uuid, name
 		if cleanOnly == False:
-			backup_vm( name )
+			backup_vm( name, xapi_session )
 		cleaner = CephSnapshotsCleanup(backup_vm.backupPool, name, policy, dryrun)
 		cleaner.cleanAll()
 
@@ -175,4 +200,6 @@ except CephError, e:
   print e
   sys.exit(2)
 
+finally:
+	xapi_session.xenapi.session.logout()
 

@@ -6,3 +6,4 @@ Automatically backup end export a list of ceph images to another ceph cluster, u
 
 # dependencies packages
 python-dateutil
+xenapi
